@@ -6,10 +6,10 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 # Add TensorFlow models directory to the path
-sys.path.append('models')
-from official.nlp.data import classifier_data_lib
-from official.nlp.bert import tokenization
-from official.nlp import optimization
+sys.path.append('/models')
+from models.official.nlp.data import classifier_data_lib
+from models.official.nlp.bert import tokenization
+from models.official.nlp import optimization
 
 # Load Quora Insincere Questions Dataset
 df = pd.read_csv('train.csv.zip', compression='zip', low_memory=False)
@@ -79,3 +79,53 @@ def to_feature_map(text, label):
         'input_type_ids': segment_ids
     }
   return (x, label_id)
+ 
+ #create a tensorflow input pipeline
+with tf.device('/cpu:0'):
+  # train
+  train_data = (train_data.map(to_feature_map,
+                              num_parallel_calls=tf.data.experimental.AUTOTUNE)
+                          #.cache()
+                          .shuffle(1000)
+                          .batch(32, drop_remainder=True)
+                          .prefetch(tf.data.experimental.AUTOTUNE))
+
+  # valid
+  valid_data = (valid_data.map(to_feature_map,
+                            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+                          .batch(32, drop_remainder=True)
+                          .prefetch(tf.data.experimental.AUTOTUNE)) 
+  
+
+# Building the model
+def create_model():
+  input_word_ids = tf.keras.layers.Input(shape=(max_seq_length,), dtype=tf.int32,
+                                      name="input_word_ids")
+  input_mask = tf.keras.layers.Input(shape=(max_seq_length,), dtype=tf.int32,
+                                  name="input_mask")
+  input_type_ids = tf.keras.layers.Input(shape=(max_seq_length,), dtype=tf.int32,
+                                  name="input_type_ids")
+
+  pooled_output, sequence_output = bert_layer([input_word_ids, input_mask, input_type_ids])
+
+  drop = tf.keras.layers.Dropout(0.4)(pooled_output)
+  output = tf.keras.layers.Dense(1, activation="sigmoid", name="output")(drop)
+
+  model = tf.keras.Model(
+    inputs={
+        'input_word_ids': input_word_ids,
+        'input_mask': input_mask,
+        'input_type_ids': input_type_ids
+    },
+    outputs=output)
+  return model
+
+
+model = create_model()
+model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=2e-5),
+              loss=tf.keras.losses.BinaryCrossentropy(),
+              metrics=[tf.keras.metrics.BinaryAccuracy()])
+model.summary()
+
+tf.keras.utils.plot_model(model=model, show_shapes=True, dpi=76, )
+
