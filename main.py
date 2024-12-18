@@ -49,3 +49,33 @@ do_lower_case = bert_layer.resolved_object.do_lower_case.numpy()
 tokenizer = tokenization.FullTokenizer(vocab_file, do_lower_case)
 tokenizer.wordpiece_tokenizer.tokenize('hi, how are you doing?')
 tokenizer.convert_tokens_to_ids(tokenizer.wordpiece_tokenizer.tokenize('hi, how are you doing?'))
+
+# This provides a function to convert row to input features and label
+
+def to_feature(text, label, label_list=label_list, max_seq_length=max_seq_length, tokenizer=tokenizer):
+  example = classifier_data_lib.InputExample(guid = None,
+                                            text_a = text.numpy(), 
+                                            text_b = None, 
+                                            label = label.numpy())
+  feature = classifier_data_lib.convert_single_example(0, example, label_list,
+                                    max_seq_length, tokenizer)
+  
+  return (feature.input_ids, feature.input_mask, feature.segment_ids, feature.label_id)
+
+
+def to_feature_map(text, label):
+  input_ids, input_mask, segment_ids, label_id = tf.py_function(to_feature, inp=[text, label], 
+                                Tout=[tf.int32, tf.int32, tf.int32, tf.int32])
+
+  # py_func doesn't set the shape of the returned tensors.
+  input_ids.set_shape([max_seq_length])
+  input_mask.set_shape([max_seq_length])
+  segment_ids.set_shape([max_seq_length])
+  label_id.set_shape([])
+
+  x = {
+        'input_word_ids': input_ids,
+        'input_mask': input_mask,
+        'input_type_ids': segment_ids
+    }
+  return (x, label_id)
